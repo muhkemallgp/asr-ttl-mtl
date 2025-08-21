@@ -1,0 +1,9 @@
+__pycache__/
+__ipycache__/
+*.py[cod]
+.mtl-venv/
+DATASET/
+cekcuda.py
+checkpoints_exp/
+finetuned_whisper/
+.ipynb_checkpoints/
