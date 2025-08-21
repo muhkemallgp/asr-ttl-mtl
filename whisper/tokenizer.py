@@ -112,9 +112,9 @@ LANGUAGES = {
 
 # Token special for disease problem
 DISEASE_CONDITIONS = {
-    "normal": "normal",
-    "dysarthria": "dysarthria", 
-    "dysphonia": "dysphonia"
+    "normal": 0,
+    "dysphonia": 1,
+    "dysarthria": 2
 }
 
 # language code lookup by name, with a few language aliases
@@ -333,7 +333,7 @@ class Tokenizer:
 
         return words, word_tokens
         
-    @property
+    @cached_property
     def disease_tokens(self) -> Dict[str, int]:
         """Get disease token IDs"""
         if not hasattr(self, 'disease_conditions'):
@@ -432,17 +432,3 @@ def get_tokenizer(
         tokenizer.disease_conditions = DISEASE_CONDITIONS
         
     return tokenizer
-
-# ADD to Tokenizer class
-@property
-def disease_tokens(self) -> Dict[str, int]:
-    """Get disease token IDs"""
-    if not hasattr(self, 'disease_conditions'):
-        return {}
-        
-    result = {}
-    for disease in self.disease_conditions.keys():
-        token_name = f"<|{disease}|>"
-        if token_name in self.special_tokens:
-            result[disease] = self.special_tokens[token_name]
-    return result

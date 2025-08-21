@@ -295,6 +295,42 @@ class Whisper(nn.Module):
     ) -> Dict[str, torch.Tensor]:
         return self.decoder(tokens, self.encoder(mel))
 
+    # Tambahkan method ini ke class Whisper setelah method forward
+    def resize_token_embeddings(self, new_vocab_size: int):
+        """Resize token embeddings untuk accommodate disease tokens"""
+        current_vocab_size = self.decoder.token_embedding.weight.size(0)
+        
+        if new_vocab_size == current_vocab_size:
+            return
+        
+        print(f"Resizing token embeddings: {current_vocab_size} -> {new_vocab_size}")
+        
+        # Create new embedding layer
+        new_embedding = nn.Embedding(new_vocab_size, self.dims.n_text_state)
+        
+        # Copy existing weights
+        with torch.no_grad():
+            new_embedding.weight[:current_vocab_size].copy_(
+                self.decoder.token_embedding.weight
+            )
+            
+            # Initialize new disease tokens dengan distribusi yang sesuai
+            if new_vocab_size > current_vocab_size:
+                existing_std = self.decoder.token_embedding.weight.std().item()
+                new_std = existing_std * 0.1  # Smaller std for faster learning
+                new_embedding.weight[current_vocab_size:].normal_(mean=0, std=new_std)
+                
+                print(f"✔ Initialized {new_vocab_size - current_vocab_size} new tokens with std={new_std:.6f}")
+        
+        # Replace embedding layer
+        self.decoder.token_embedding = new_embedding
+        
+        # Update vocabulary size in dims
+        self.dims.n_vocab = new_vocab_size
+        
+        print(f"✔ Token embeddings resized successfully")
+        return new_embedding
+
     @property
     def device(self):
         return next(self.parameters()).device

@@ -10,6 +10,8 @@ import torch
 import json
 import pandas as pd
 from sklearn.metrics import precision_recall_fscore_support, classification_report, confusion_matrix
+import jiwer
+import numpy as np
 
 def print_inference_results(results):
     """Print comprehensive inference results with all metrics"""
@@ -17,12 +19,34 @@ def print_inference_results(results):
     print(f"{'COMPREHENSIVE INFERENCE RESULTS':^80}")
     print(f"{'='*80}")
     
-    summary = results['summary']
+    # Extract metrics directly from results structure
     inference_data = results['inference_results']
+    total_samples = results['total_samples']
+    overall_wer = results['overall_wer']
+    overall_cer = results['overall_cer']
+    disease_accuracy = results['disease_accuracy']
+    disease_correct = results['disease_correct']
+    per_class_metrics = results['per_class_metrics']
+    
+    # ✅ USE DYNAMIC DISEASE MAPPING (from actual data, not hardcoded)
+    unique_diseases = set()
+    for r in inference_data:
+        unique_diseases.add(r['true_disease'].lower())
+        unique_diseases.add(r['predicted_disease'].lower())
+    
+    disease_list = sorted(list(unique_diseases))
+    disease_to_class_dynamic = {disease: idx for idx, disease in enumerate(disease_list)}
     
     # Calculate additional classification metrics
-    true_labels = [0 if r['true_disease'] == 'Normal' else 1 if r['true_disease'] == 'Dysarthria' else 2 for r in inference_data]
-    pred_labels = [0 if r['predicted_disease'] == 'Normal' else 1 if r['predicted_disease'] == 'Dysarthria' else 2 for r in inference_data]
+    true_labels = []
+    pred_labels = []
+    
+    for r in inference_data:
+        true_disease = r['true_disease'].lower()
+        pred_disease = r['predicted_disease'].lower()
+        
+        true_labels.append(disease_to_class_dynamic.get(true_disease, 0))
+        pred_labels.append(disease_to_class_dynamic.get(pred_disease, 0))
     
     # Calculate precision, recall, F1
     precision, recall, f1, _ = precision_recall_fscore_support(true_labels, pred_labels, average='weighted', zero_division=0)
@@ -35,14 +59,14 @@ def print_inference_results(results):
     
     # Overall summary with all metrics
     print(f"\n📊 OVERALL PERFORMANCE SUMMARY:")
-    print(f"   Total Samples: {summary['total_samples']}")
+    print(f"   Total Samples: {total_samples}")
     print(f"   " + "="*50)
     print(f"   🎯 TRANSCRIPTION METRICS:")
-    print(f"      Overall WER: {summary['overall_wer']:.4f}")
-    print(f"      Overall CER: {summary['overall_cer']:.4f}")
+    print(f"      Overall WER: {overall_wer:.4f}")
+    print(f"      Overall CER: {overall_cer:.4f}")
     print(f"   " + "="*50)
     print(f"   🏥 DISEASE CLASSIFICATION METRICS:")
-    print(f"      Accuracy: {summary['disease_accuracy']:.4f} ({summary['disease_correct']}/{summary['total_samples']})")
+    print(f"      Accuracy: {disease_accuracy:.4f} ({disease_correct}/{total_samples})")
     print(f"      Weighted Precision: {precision:.4f}")
     print(f"      Weighted Recall: {recall:.4f}")
     print(f"      Weighted F1-Score: {f1:.4f}")
@@ -68,21 +92,21 @@ def print_inference_results(results):
               f"{sample['disease_confidence']:<5.3f} "
               f"{predicted_text:<40}")
     
-    # Per-class detailed metrics
+    # ✅ DYNAMIC PER-CLASS METRICS (not hardcoded)
     print(f"\n📈 PER-CLASS DETAILED METRICS:")
-    disease_names = ['Normal', 'Dysarthria', 'Dysphonia']
+    display_names = [disease.capitalize() for disease in disease_list]
     
     print(f"{'Class':<12} {'Samples':<8} {'Acc':<6} {'Prec':<6} {'Rec':<6} {'F1':<6} {'WER':<6} {'CER':<6}")
     print(f"{'-'*70}")
     
-    for i, disease in enumerate(disease_names):
-        if 'per_class_metrics' in summary and disease in summary['per_class_metrics']:
-            metrics = summary['per_class_metrics'][disease]
+    for i, (disease, display_name) in enumerate(zip(disease_list, display_names)):
+        if disease in per_class_metrics:
+            metrics = per_class_metrics[disease]
             class_precision = per_class_precision[i] if i < len(per_class_precision) else 0.0
             class_recall = per_class_recall[i] if i < len(per_class_recall) else 0.0
             class_f1 = per_class_f1[i] if i < len(per_class_f1) else 0.0
             
-            print(f"{disease:<12} "
+            print(f"{display_name:<12} "
                   f"{metrics['samples']:<8} "
                   f"{metrics['accuracy']:<5.3f} "
                   f"{class_precision:<5.3f} "
@@ -91,22 +115,26 @@ def print_inference_results(results):
                   f"{metrics['wer']:<5.3f} "
                   f"{metrics['cer']:<5.3f}")
     
-    # Confusion Matrix
+    # ✅ DYNAMIC CONFUSION MATRIX
     print(f"\n📊 CONFUSION MATRIX:")
     conf_matrix = confusion_matrix(true_labels, pred_labels)
-    print(f"{'Actual // Predicted':<15} {'Normal':<8} {'Dysarthria':<12} {'Dysphonia':<10}")
-    print(f"{'-'*50}")
-    for i, disease in enumerate(disease_names):
-        row_str = f"{disease:<15} "
-        for j in range(len(disease_names)):
-            row_str += f"{conf_matrix[i][j]:<8} " if j == 0 else f"{conf_matrix[i][j]:<12} " if j == 1 else f"{conf_matrix[i][j]:<10}"
-        print(row_str)
+    print(f"{'Actual // Predicted':<15} ", end="")
+    for name in display_names:
+        print(f"{name:<12}", end="")
+    print()
+    print(f"{'-'*(15 + 12*len(display_names))}")
     
-    # Classification Report
+    for i, display_name in enumerate(display_names):
+        print(f"{display_name:<15} ", end="")
+        for j in range(len(display_names)):
+            print(f"{conf_matrix[i][j]:<12}", end="")
+        print()
+    
+    # ✅ DYNAMIC CLASSIFICATION REPORT
     print(f"\n📋 DETAILED CLASSIFICATION REPORT:")
     class_report = classification_report(
         true_labels, pred_labels, 
-        target_names=disease_names, 
+        target_names=display_names, 
         digits=4, 
         zero_division=0
     )
@@ -166,7 +194,6 @@ def print_inference_results(results):
             print(f"      Predicted: {sample['predicted_text'][:60]}...")
     
     print(f"\n💥 WORST PERFORMING SAMPLES (Highest WER or Wrong Disease):")
-    # Combine high WER and wrong disease predictions
     worst_samples = sorted(inference_data, key=lambda x: (not x['disease_correct'], x['wer']), reverse=True)[:3]
     for i, sample in enumerate(worst_samples):
         disease_status = "✗" if not sample['disease_correct'] else "✓"
@@ -179,9 +206,24 @@ def save_inference_results(results, output_path):
     """Save comprehensive inference results with all metrics"""
     inference_data = results['inference_results']
     
+    # ✅ USE DYNAMIC DISEASE MAPPING (not hardcoded)
+    unique_diseases = set()
+    for r in inference_data:
+        unique_diseases.add(r['true_disease'].lower())
+        unique_diseases.add(r['predicted_disease'].lower())
+    
+    disease_list = sorted(list(unique_diseases))
+    disease_to_class_dynamic = {disease: idx for idx, disease in enumerate(disease_list)}
+    
     # Calculate additional metrics for saving
-    true_labels = [0 if r['true_disease'] == 'Normal' else 1 if r['true_disease'] == 'Dysarthria' else 2 for r in inference_data]
-    pred_labels = [0 if r['predicted_disease'] == 'Normal' else 1 if r['predicted_disease'] == 'Dysarthria' else 2 for r in inference_data]
+    true_labels = []
+    pred_labels = []
+    
+    for r in inference_data:
+        true_disease = r['true_disease'].lower()
+        pred_disease = r['predicted_disease'].lower()
+        true_labels.append(disease_to_class_dynamic.get(true_disease, 0))
+        pred_labels.append(disease_to_class_dynamic.get(pred_disease, 0))
     
     precision, recall, f1, _ = precision_recall_fscore_support(true_labels, pred_labels, average='weighted', zero_division=0)
     macro_precision, macro_recall, macro_f1, _ = precision_recall_fscore_support(true_labels, pred_labels, average='macro', zero_division=0)
@@ -191,21 +233,21 @@ def save_inference_results(results, output_path):
     
     # Add computed metrics to results
     enhanced_results = results.copy()
-    enhanced_results['summary']['weighted_precision'] = precision
-    enhanced_results['summary']['weighted_recall'] = recall
-    enhanced_results['summary']['weighted_f1'] = f1
-    enhanced_results['summary']['macro_precision'] = macro_precision
-    enhanced_results['summary']['macro_recall'] = macro_recall
-    enhanced_results['summary']['macro_f1'] = macro_f1
+    enhanced_results['weighted_precision'] = precision
+    enhanced_results['weighted_recall'] = recall
+    enhanced_results['weighted_f1'] = f1
+    enhanced_results['macro_precision'] = macro_precision
+    enhanced_results['macro_recall'] = macro_recall
+    enhanced_results['macro_f1'] = macro_f1
     
     with open(json_path, 'w') as f:
         json.dump(enhanced_results, f, indent=2)
     print(f"✓ Detailed results saved: {json_path}")
     
-    # Save comprehensive CSV
+    # ✅ DYNAMIC CSV COLUMNS (support any disease type)
     csv_data = []
     for sample in inference_data:
-        csv_data.append({
+        row = {
             'file_path': sample['file_path'],
             'original_text': sample['original_text'],
             'predicted_text': sample['predicted_text'],
@@ -216,11 +258,14 @@ def save_inference_results(results, output_path):
             'true_disease': sample['true_disease'],
             'predicted_disease': sample['predicted_disease'],
             'disease_confidence': sample['disease_confidence'],
-            'disease_correct': sample['disease_correct'],
-            'normal_prob': sample['all_disease_probs']['Normal'],
-            'dysarthria_prob': sample['all_disease_probs']['Dysarthria'],
-            'dysphonia_prob': sample['all_disease_probs']['Dysphonia']
-        })
+            'disease_correct': sample['disease_correct']
+        }
+        
+        # Add all disease probabilities dynamically
+        for disease, prob in sample['all_disease_probs'].items():
+            row[f'{disease}_prob'] = prob
+        
+        csv_data.append(row)
     
     df = pd.DataFrame(csv_data)
     df.to_csv(output_path, index=False)
@@ -230,14 +275,14 @@ def save_inference_results(results, output_path):
     summary_stats_path = output_path.replace('.csv', '_metrics_summary.txt')
     with open(summary_stats_path, 'w') as f:
         f.write("=== COMPREHENSIVE INFERENCE METRICS SUMMARY ===\n\n")
-        f.write(f"Total Samples: {results['summary']['total_samples']}\n\n")
+        f.write(f"Total Samples: {results['total_samples']}\n\n")
         
         f.write("TRANSCRIPTION METRICS:\n")
-        f.write(f"  Overall WER: {results['summary']['overall_wer']:.4f}\n")
-        f.write(f"  Overall CER: {results['summary']['overall_cer']:.4f}\n\n")
+        f.write(f"  Overall WER: {results['overall_wer']:.4f}\n")
+        f.write(f"  Overall CER: {results['overall_cer']:.4f}\n\n")
         
         f.write("DISEASE CLASSIFICATION METRICS:\n")
-        f.write(f"  Accuracy: {results['summary']['disease_accuracy']:.4f}\n")
+        f.write(f"  Accuracy: {results['disease_accuracy']:.4f}\n")
         f.write(f"  Weighted Precision: {precision:.4f}\n")
         f.write(f"  Weighted Recall: {recall:.4f}\n")
         f.write(f"  Weighted F1-Score: {f1:.4f}\n")
@@ -245,9 +290,9 @@ def save_inference_results(results, output_path):
         f.write(f"  Macro Recall: {macro_recall:.4f}\n")
         f.write(f"  Macro F1-Score: {macro_f1:.4f}\n\n")
         
-        if 'per_class_metrics' in results['summary']:
+        if 'per_class_metrics' in results:
             f.write("PER-CLASS METRICS:\n")
-            for disease, metrics in results['summary']['per_class_metrics'].items():
+            for disease, metrics in results['per_class_metrics'].items():
                 f.write(f"  {disease}:\n")
                 f.write(f"    Samples: {metrics['samples']}\n")
                 f.write(f"    Accuracy: {metrics['accuracy']:.4f}\n")
@@ -295,6 +340,8 @@ def main():
     # Load model
     print("Loading trained model...")
     trainer = MultiTaskTrainer.load_from_checkpoint(args.model_path)
+    trainer.model.to(device)
+    trainer.disease_classifier.to(device)
     
     # Create test dataset
     print("Loading test dataset...")
@@ -313,7 +360,7 @@ def main():
     
     # Run inference
     print("Running comprehensive model inference...")
-    results = trainer.inference_detailed(test_loader)
+    results = run_inference_detailed(trainer, test_loader)
     
     # Print comprehensive results
     print_inference_results(results)
@@ -325,6 +372,154 @@ def main():
     print(f"\n{'='*80}")
     print(f"{'COMPREHENSIVE INFERENCE COMPLETED':^80}")
     print(f"{'='*80}")
+
+def run_inference_detailed(trainer, dataloader):
+    """Run detailed inference that EXACTLY matches trainer's evaluation structure"""
+    trainer.model.eval()
+    trainer.disease_classifier.eval()
+    
+    all_results = []
+    total_wer = 0
+    total_cer = 0
+    total_correct_disease = 0
+    total_samples = 0
+    
+    # ✅ USE TRAINER'S DISEASE MAPPING (not hardcoded)
+    class_to_disease = trainer.class_to_disease
+    disease_to_class = trainer.disease_to_class
+    
+    # ✅ DYNAMIC PER-CLASS TRACKING (based on trainer's mapping)
+    disease_names = list(class_to_disease.values())
+    per_class_metrics = {disease: {'correct': 0, 'total': 0, 'wer_sum': 0, 'cer_sum': 0} 
+                        for disease in disease_names}
+    
+    with torch.no_grad():
+        for batch_idx, batch_data in enumerate(dataloader):
+            mels = batch_data['mels'].to(trainer.device)
+            input_tokens = batch_data['input_tokens'].to(trainer.device)
+            target_tokens = batch_data['target_tokens'].to(trainer.device)
+            classes = batch_data['classes'].to(trainer.device)
+            texts = batch_data['texts']
+            paths = batch_data['paths']
+            
+            try:
+                # ✅ EXACT SAME FORWARD PASS AS TRAINER
+                audio_features = trainer.model.encoder(mels)
+                disease_logits, disease_preds = trainer.classify_disease_from_audio(audio_features)
+                transcription_logits = trainer.model.decoder(input_tokens, audio_features)
+                
+                # Get disease probabilities
+                disease_probs = torch.softmax(disease_logits, dim=-1)
+                
+                # ✅ EXACT SAME DECODING AS TRAINER
+                pred_texts = trainer.decode_predictions(transcription_logits)
+                
+                # Process each sample in batch
+                for i in range(len(texts)):
+                    # Normalize texts for comparison
+                    original_text = texts[i].strip()
+                    predicted_text = pred_texts[i].strip()
+                    
+                    original_normalized = original_text.lower()
+                    predicted_normalized = predicted_text.lower()
+                    
+                    # ✅ SAME WER/CER CALCULATION AS TRAINER
+                    try:
+                        if original_normalized and predicted_normalized:
+                            wer = jiwer.wer([original_normalized], [predicted_normalized])
+                            cer = jiwer.cer([original_normalized], [predicted_normalized])
+                        else:
+                            wer, cer = 1.0, 1.0
+                    except:
+                        wer, cer = 1.0, 1.0
+                    
+                    # ✅ USE TRAINER'S DISEASE MAPPING
+                    true_class = classes[i].item()
+                    pred_class = disease_preds[i].item()
+                    
+                    true_disease = class_to_disease.get(true_class, 'normal')
+                    predicted_disease = class_to_disease.get(pred_class, 'normal')
+                    
+                    disease_correct = true_class == pred_class
+                    disease_confidence = disease_probs[i][pred_class].item()
+                    
+                    # ✅ GET ALL DISEASE PROBABILITIES USING TRAINER'S MAPPING
+                    all_disease_probs = {}
+                    for class_id, disease_name in class_to_disease.items():
+                        all_disease_probs[disease_name] = disease_probs[i][class_id].item()
+                    
+                    # Store result
+                    result = {
+                        'file_path': paths[i],
+                        'original_text': original_text,
+                        'predicted_text': predicted_text,
+                        'original_text_normalized': original_normalized,
+                        'predicted_text_normalized': predicted_normalized,
+                        'wer': wer,
+                        'cer': cer,
+                        'true_disease': true_disease,
+                        'predicted_disease': predicted_disease,
+                        'disease_confidence': disease_confidence,
+                        'disease_correct': disease_correct,
+                        'all_disease_probs': all_disease_probs
+                    }
+                    
+                    all_results.append(result)
+                    
+                    # Update totals
+                    total_wer += wer
+                    total_cer += cer
+                    if disease_correct:
+                        total_correct_disease += 1
+                    total_samples += 1
+                    
+                    # Update per-class metrics
+                    if true_disease in per_class_metrics:
+                        per_class_metrics[true_disease]['total'] += 1
+                        per_class_metrics[true_disease]['wer_sum'] += wer
+                        per_class_metrics[true_disease]['cer_sum'] += cer
+                        if disease_correct:
+                            per_class_metrics[true_disease]['correct'] += 1
+                            
+            except Exception as e:
+                print(f"Error processing batch {batch_idx}: {e}")
+                continue
+    
+    # Calculate summary metrics
+    overall_wer = total_wer / total_samples if total_samples > 0 else 1.0
+    overall_cer = total_cer / total_samples if total_samples > 0 else 1.0
+    disease_accuracy = total_correct_disease / total_samples if total_samples > 0 else 0.0
+    
+    # Calculate per-class summary
+    per_class_summary = {}
+    for disease, metrics in per_class_metrics.items():
+        if metrics['total'] > 0:
+            per_class_summary[disease] = {
+                'samples': metrics['total'],
+                'accuracy': metrics['correct'] / metrics['total'],
+                'wer': metrics['wer_sum'] / metrics['total'],
+                'cer': metrics['cer_sum'] / metrics['total']
+            }
+        else:
+            per_class_summary[disease] = {
+                'samples': 0,
+                'accuracy': 0.0,
+                'wer': 1.0,
+                'cer': 1.0
+            }
+    
+    # ✅ EXACT SAME STRUCTURE AS TRAINER's compute_detailed_metrics
+    results = {
+        'total_samples': total_samples,
+        'overall_wer': overall_wer,
+        'overall_cer': overall_cer,
+        'disease_accuracy': disease_accuracy,
+        'disease_correct': total_correct_disease,
+        'per_class_metrics': per_class_summary,
+        'inference_results': all_results
+    }
+    
+    return results
 
 if __name__ == "__main__":
     main()
